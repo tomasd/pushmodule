@@ -25,13 +25,11 @@ public class All1 {
         Thread client = new Thread(new Client("tcp://localhost:5011", outCounter, snapshotAddress, publisherAddress));
         AtomicInteger inCounter = new AtomicInteger(0);
 
-        client.setDaemon(false);
+
         client.start();
 
         server.put("/overview/1", 1, "asdf");
-
-        Thread.sleep(1000);
         PrettyPrinter.prettyPrint(state, System.out);
-        client.join();
+        server.close();
     }
 }

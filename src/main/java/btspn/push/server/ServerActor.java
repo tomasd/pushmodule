@@ -4,14 +4,19 @@ import com.googlecode.concurrenttrees.radix.ConcurrentRadixTree;
 import org.apache.commons.lang3.tuple.Pair;
 import org.zeromq.*;
 
+import java.io.Closeable;
 import java.math.BigInteger;
 import java.nio.channels.SelectableChannel;
 import java.util.Arrays;
 import java.util.List;
 
 
-public class ServerActor {
+public class ServerActor implements Closeable{
     private final ZActor actor;
+
+    public void close() {
+        this.actor.send("CLOSE");
+    }
 
     private static class Actor extends ZActor.SimpleActor {
         private final ConcurrentRadixTree<Pair<Long, String>> state;
@@ -69,6 +74,7 @@ public class ServerActor {
                     String cmd = socket.recvStr();
                     if ("KVPUB".equals(cmd)) {
                         Server.handleCollector(socket, state, publisher);
+                        socket.send("OK");
                     }
                     return true;
                 }
@@ -101,6 +107,7 @@ public class ServerActor {
         msg.add(new byte[0]);
         msg.add(value);
         msg.send(pipe, true);
+        this.actor.pipe().recv();
     }
 
     public static void main(String[] args) {
