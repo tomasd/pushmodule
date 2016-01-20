@@ -6,6 +6,80 @@ import org.zeromq.ZMsg;
 import java.math.BigInteger;
 
 public class Messages {
+    public static class Icanhaz {
+        public final String client;
+        public final String path;
+
+        public Icanhaz(String client, String path) {
+            this.client = client;
+            this.path = path;
+        }
+
+        public static Icanhaz parse(ZMsg msg) {
+            return new Icanhaz(msg.popString(), msg.popString());
+        }
+
+        public void send(ZMQ.Socket socket) {
+            ZMsg msg = new ZMsg();
+            msg.add("ICANHAZ?");
+            msg.add(client);
+            msg.add(path);
+            msg.send(socket, true);
+        }
+    }
+
+
+
+    public static class KvSyncT {
+        public final String client;
+        public final String key;
+        public final long version;
+        public final String props;
+        public final String value;
+
+        public KvSyncT(String client, String key, long version, String props, String value) {
+            this.client = client;
+            this.key = key;
+            this.version = version;
+            this.props = props;
+            this.value = value;
+        }
+
+        public static KvSyncT KTHXBAI(String client, String path) {
+            return new KvSyncT(client, "KTHXBAI", 0, "", path);
+        }
+        public static KvSyncT parse(ZMsg msg) {
+            KvSyncT value = new KvSyncT(
+                    msg.popString(),
+                    msg.popString(),
+                    new BigInteger(msg.pop().getData()).longValue(),
+                    msg.popString(),
+                    msg.popString()
+            );
+            msg.destroy();
+            return value;
+        }
+
+        public void send(ZMQ.Socket publish) {
+            toMsg().send(publish, true);
+        }
+
+        public ZMsg toMsg() {
+            ZMsg zFrames = new ZMsg();
+            zFrames.add(client);
+            zFrames.add(key);
+            zFrames.add(BigInteger.valueOf(version).toByteArray());
+            zFrames.add(props);
+            zFrames.add(value);
+            return zFrames;
+        }
+
+        @Override
+        public String toString() {
+            return toMsg().toString();
+        }
+    }
+
     public static class KvSync {
         public final String key;
         public final long version;

@@ -1,5 +1,6 @@
 package btspn.push;
 
+import com.googlecode.concurrenttrees.common.KeyValuePair;
 import com.googlecode.concurrenttrees.radix.ConcurrentRadixTree;
 import com.googlecode.concurrenttrees.radix.RadixTree;
 import com.googlecode.concurrenttrees.radix.node.concrete.DefaultCharSequenceNodeFactory;
@@ -9,6 +10,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.zeromq.*;
+import zmq.Msg;
 
 import java.nio.channels.SelectableChannel;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,17 +40,30 @@ public class State implements Runnable {
 
         ZMQ.Socket update = ctx.createSocket(ZMQ.REQ);
         update.connect("tcp://127.0.0.1:5003");
+        ZMQ.Socket snapshot = ctx.createSocket(ZMQ.DEALER);
+        snapshot.connect("tcp://127.0.0.1:5002");
 
 
-//        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; i++) {
 
-        new Messages.KvSync("/overview/1", 1, "", "futbal").send(update);
-        System.out.println(update.recvStr());
-        Thread.sleep(2000);
-//        }
+            new Messages.KvSync("/overview/1", i, "", "futbal").send(update);
+            System.out.println(update.recvStr());
+        }
+
+        new Messages.Icanhaz("1", "/overview").send(snapshot);
+        while (true) {
+            ZMsg msg1 = ZMsg.recvMsg(snapshot);
+            msg1.unwrap();
+            Messages.KvSyncT msg = Messages.KvSyncT.parse(msg1);
+            LOG.info("KVSYNCT {}", msg);
+            if ("KTHXBAI".equals(msg.key)) {
+                break;
+            }
+        }
 
         LOG.info("Closing");
         update.close();
+        snapshot.close();
         ctx.close();
     }
 
@@ -89,6 +104,34 @@ public class State implements Runnable {
             if (System.currentTimeMillis() - lastHugz.get() > 4000) {
                 publish.send("HUGZ");
                 lastHugz.set(System.currentTimeMillis());
+            }
+            return 0;
+        }, null);
+        loop.addPoller(new ZMQ.PollItem(snapshot, ZPoller.IN), (loop1, item, arg) -> {
+            if (item.isReadable()) {
+                ZMsg msg = ZMsg.recvMsg(item.getSocket());
+                ZFrame identity = msg.unwrap();
+                if (msg.size() == 3 && "ICANHAZ?".equals(msg.peek().toString())) {
+                    msg.popString();
+
+                    Messages.Icanhaz icanhaz = Messages.Icanhaz.parse(msg);
+
+                    for (KeyValuePair<Pair<Long, String>> entry : state.getKeyValuePairsForKeysStartingWith(icanhaz.path)) {
+                        ZMsg kvsync = new Messages.KvSyncT(
+                                icanhaz.client,
+                                entry.getKey().toString(),
+                                entry.getValue().getKey(),
+                                null,
+                                entry.getValue().getValue()
+                        ).toMsg();
+                        kvsync.wrap(identity.duplicate());
+                        kvsync.send(item.getSocket(), true);
+                    }
+
+                    ZMsg kthxbai = Messages.KvSyncT.KTHXBAI(icanhaz.client, icanhaz.path).toMsg();
+                    kthxbai.wrap(identity);
+                    kthxbai.send(item.getSocket(), true);
+                }
             }
             return 0;
         }, null);
