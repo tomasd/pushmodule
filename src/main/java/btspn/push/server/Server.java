@@ -11,7 +11,6 @@ import org.zeromq.*;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.util.Random;
 import java.util.UUID;
 
 public class Server implements Runnable {
@@ -46,6 +45,63 @@ public class Server implements Runnable {
 
     private static byte[] bytes(Long version) {
         return BigInteger.valueOf(version).toByteArray();
+    }
+
+    public static void handleSnapshot(ZMQ.Socket socket, ConcurrentRadixTree<Pair<Long, String>> state) {
+        ZMsg msg = ZMsg.recvMsg(socket);
+        LOG.debug("ICANHAZ: {}", msg);
+        byte[] identity = msg.pop().getData();
+        byte[] clientIdentity = msg.pop().getData();
+        String cmd = msg.popString();
+        if ("ICANHAZ?".equals(cmd)) {
+            String path = msg.popString();
+
+            Iterable<KeyValuePair<Pair<Long, String>>> entries = state.getKeyValuePairsForKeysStartingWith(path);
+            long maxVersion = 0l;
+            for (KeyValuePair<Pair<Long, String>> entry : entries) {
+                Long version = entry.getValue().getKey();
+                maxVersion = Math.max(maxVersion, version);
+
+                ZMsg resp = new ZMsg();
+                resp.add(identity);
+                resp.add(clientIdentity);
+                event(resp, entry.getKey(), version, new byte[0], null, entry.getValue().getValue());
+                resp.send(socket, true);
+            }
+
+            ZMsg resp = new ZMsg();
+            resp.add(identity);
+            resp.add(clientIdentity);
+            event(resp, "KTHXBAI", maxVersion, new byte[0], null, null);
+            resp.send(socket, true);
+        } else {
+            LOG.error("Ignoring invalid command: {}", cmd);
+        }
+        msg.destroy();
+    }
+
+    public static void handleCollector(ZMQ.Socket socket, ConcurrentRadixTree<Pair<Long, String>> state, ZMQ.Socket publisher) {
+        ZMsg msg = ZMsg.recvMsg(socket);
+//                LOG.debug("COLLECTOR: {}", msg);
+        String path = msg.popString();
+        long version = new BigInteger(msg.pop().getData()).longValue();
+        byte[] cmdId = msg.pop().getData();
+        String properties = msg.popString();
+        String value = msg.popString();
+
+        if (value == null) {
+            state.remove(path);
+            ZMsg resp = event(path, version, new byte[0], null, null);
+            resp.send(publisher);
+        } else {
+            Pair<Long, String> p = state.getValueForExactKey(path);
+            if (p == null || p.getKey() < version) {
+                LOG.info("put {} {} {}", path, version, value);
+                state.put(path, ImmutablePair.of(version, value));
+                ZMsg resp = event(path, version, cmdId, properties, value);
+                resp.send(publisher);
+            }
+        }
     }
 
     public void run() {
@@ -100,36 +156,8 @@ public class Server implements Runnable {
 
         public int handle(ZLoop loop, ZMQ.PollItem item, Object arg) {
             if (item.isReadable()) {
-                ZMsg msg = ZMsg.recvMsg(item.getSocket());
-                LOG.debug("ICANHAZ: {}", msg);
-                byte[] identity = msg.pop().getData();
-                byte[] clientIdentity = msg.pop().getData();
-                String cmd = msg.popString();
-                if ("ICANHAZ?".equals(cmd)) {
-                    String path = msg.popString();
-
-                    Iterable<KeyValuePair<Pair<Long, String>>> entries = state.getKeyValuePairsForKeysStartingWith(path);
-                    long maxVersion = 0l;
-                    for (KeyValuePair<Pair<Long, String>> entry : entries) {
-                        Long version = entry.getValue().getKey();
-                        maxVersion = Math.max(maxVersion, version);
-
-                        ZMsg resp = new ZMsg();
-                        resp.add(identity);
-                        resp.add(clientIdentity);
-                        event(resp, entry.getKey(), version, new byte[0], null, entry.getValue().getValue());
-                        resp.send(item.getSocket(), true);
-                    }
-
-                    ZMsg resp = new ZMsg();
-                    resp.add(identity);
-                    resp.add(clientIdentity);
-                    event(resp, "KTHXBAI", maxVersion, new byte[0], null, null);
-                    resp.send(item.getSocket(), true);
-                } else {
-                    LOG.error("Ignoring invalid command: {}", cmd);
-                }
-                msg.destroy();
+                ZMQ.Socket socket = item.getSocket();
+                handleSnapshot(socket, state);
             }
             return 0;
         }
@@ -148,26 +176,8 @@ public class Server implements Runnable {
 
         public int handle(ZLoop loop, ZMQ.PollItem item, Object arg) {
             if (item.isReadable()) {
-                ZMsg msg = ZMsg.recvMsg(item.getSocket());
-//                LOG.debug("COLLECTOR: {}", msg);
-                String path = msg.popString();
-                long version = new BigInteger(msg.pop().getData()).longValue();
-                byte[] cmdId = msg.pop().getData();
-                String properties = msg.popString();
-                String value = msg.popString();
-
-                if (value == null) {
-                    state.remove(path);
-                    ZMsg resp = event(path, version, new byte[0], null, null);
-                    resp.send(publisher);
-                } else {
-                    Pair<Long, String> p = state.getValueForExactKey(path);
-                    if (p == null || p.getKey() < version) {
-                        state.put(path, ImmutablePair.of(version, value));
-                        ZMsg resp = event(path, version, cmdId, properties, value);
-                        resp.send(publisher);
-                    }
-                }
+                ZMQ.Socket socket = item.getSocket();
+                handleCollector(socket, state, publisher);
             }
             return 0;
         }
