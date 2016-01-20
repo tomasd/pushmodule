@@ -14,17 +14,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Client implements Runnable {
     private final static Logger LOG = LoggerFactory.getLogger(Client.class);
 
-    private final String address;
-    private final int port;
     private final String pipeAddress;
     private final AtomicInteger counter;
+    private final String snapshotAddress;
+    private final String publisherAddress;
 
-    public Client(String address, int port, String pipeAddress, AtomicInteger counter) {
-
-        this.address = address;
-        this.port = port;
+    public Client(String pipeAddress, AtomicInteger counter, String snapshotAddress, String publisherAddress) {
         this.pipeAddress = pipeAddress;
         this.counter = counter;
+        this.snapshotAddress = snapshotAddress;
+        this.publisherAddress = publisherAddress;
+    }
+
+    public Client(String address, int port, String pipeAddress, AtomicInteger counter) {
+        this(pipeAddress, counter, "tcp://" + address + ":" + port, "tcp://" + address + ":" + (port + 1));
     }
 
     public void run() {
@@ -33,8 +36,9 @@ public class Client implements Runnable {
         ZMQ.Socket subscriber = ctx.createSocket(ZMQ.SUB);
         ZMQ.Socket pipe = ctx.createSocket(ZMQ.PAIR);
 
-        connect("snapshot", snapshot, "tcp://" + address + ":" + port);
-        connect("subscriber", subscriber, "tcp://" + address + ":" + (port + 1));
+
+        connect("snapshot", snapshot, snapshotAddress);
+        connect("subscriber", subscriber, publisherAddress);
         subscriber.subscribe("HUGZ".getBytes());
         bind("pipe", pipe, pipeAddress);
         ConcurrentRadixTree<Set<String>> subscriptions = new ConcurrentRadixTree<>(new DefaultCharSequenceNodeFactory());

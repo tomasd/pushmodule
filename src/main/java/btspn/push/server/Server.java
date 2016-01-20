@@ -16,11 +16,18 @@ import java.util.UUID;
 
 public class Server implements Runnable {
     private final static Logger LOG = LoggerFactory.getLogger(Server.class);
-    private final int port;
+    private final String snapshotAddress;
+    private final String publisherAddress;
+    private final String collectorAddress;
+
+    public Server(String snapshotAddress, String publisherAddress, String collectorAddress) {
+        this.snapshotAddress = snapshotAddress;
+        this.publisherAddress = publisherAddress;
+        this.collectorAddress = collectorAddress;
+    }
 
     public Server(int port) {
-
-        this.port = port;
+        this("tcp://*:" + port, "tcp://*:" + (port + 1), "tcp://*:" + (port + 2));
     }
 
     static ZMsg event(CharSequence path, Long version, byte[] cmdId, String properties, String value) {
@@ -48,9 +55,9 @@ public class Server implements Runnable {
         final ZMQ.Socket collector = ctx.createSocket(ZMQ.SUB);
 
 
-        bind("snapshot", snapshot, "tcp://*:" + port);
-        bind("publisher", publisher, "tcp://*:" + (port + 1));
-        bind("collector", collector, "tcp://*:" + (port + 2));
+        bind("snapshot", snapshot, snapshotAddress);
+        bind("publisher", publisher, publisherAddress);
+        bind("collector", collector, collectorAddress);
         collector.subscribe("".getBytes());
 
         ConcurrentRadixTree<Pair<Long, String>> state = new ConcurrentRadixTree<Pair<Long, String>>(new DefaultCharSequenceNodeFactory());

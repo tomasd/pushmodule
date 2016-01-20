@@ -10,8 +10,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class All {
     public static void main(String[] args) throws InterruptedException {
         AtomicInteger outCounter = new AtomicInteger(0);
-        Thread server = new Thread(new Server(5000));
-        Thread client = new Thread(new Client("localhost", 5000, "tcp://localhost:5011", outCounter));
+
+
+        String snapshotAddress = "tcp://localhost:5000";
+        String publisherAddress = "tcp://localhost:5001";
+        String collectorAddress = "tcp://localhost:5002";
+        Thread server = new Thread(new Server(snapshotAddress, publisherAddress, collectorAddress));
+        Thread client = new Thread(new Client("tcp://localhost:5011", outCounter, snapshotAddress, publisherAddress));
         AtomicInteger inCounter = new AtomicInteger(0);
         Thread writer = new Thread(new Writer("tcp://localhost:5002", inCounter));
 
@@ -30,7 +35,7 @@ public class All {
             int stopOut = outCounter.get();
             int stopIn = inCounter.get();
             stopWatch.stop();
-            System.out.println((stopIn-startIn)/(stopWatch.getTime()/1000f) + " - " + (stopOut-startOut)/(stopWatch.getTime()/1000f));
+            System.out.println((stopIn - startIn) / (stopWatch.getTime() / 1000f) + " - " + (stopOut - startOut) / (stopWatch.getTime() / 1000f));
             stopWatch = new StopWatch();
 
         }
