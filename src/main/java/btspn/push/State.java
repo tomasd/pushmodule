@@ -35,7 +35,7 @@ public class State implements Runnable {
 
         ConcurrentRadixTree<Pair<Long, String>> state = new ConcurrentRadixTree<>(new DefaultCharSequenceNodeFactory());
         Thread thread = new Thread(new State("tcp://127.0.0.1:5001", "tcp://127.0.0.1:5002", "tcp://127.0.0.1:5003", state));
-//        thread.setDaemon(true);
+        thread.setDaemon(false);
         thread.start();
 
         ZMQ.Socket update = ctx.createSocket(ZMQ.REQ);
@@ -44,10 +44,14 @@ public class State implements Runnable {
         snapshot.connect("tcp://127.0.0.1:5002");
 
 
-        for (int i = 0; i < 10; i++) {
-
-            new Messages.KvSync("/overview/1", i, "", "futbal").send(update);
+        int i = 0;
+        while (true) {
+            new Messages.KvSync("/overview/1", i++, "", "futbal").send(update);
             System.out.println(update.recvStr());
+            Thread.sleep(5000);
+            if (false) {
+                break;
+            }
         }
 
         new Messages.Icanhaz("1", "/overview").send(snapshot);

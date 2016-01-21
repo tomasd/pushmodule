@@ -4,6 +4,7 @@ import org.zeromq.ZMQ;
 import org.zeromq.ZMsg;
 
 import java.math.BigInteger;
+import java.util.function.Supplier;
 
 public class Messages {
     public static class Icanhaz {
@@ -115,6 +116,34 @@ public class Messages {
             zFrames.add(props);
             zFrames.add(value);
             return zFrames;
+        }
+    }
+
+    public static class Sub {
+        public final String client;
+        public final String path;
+
+        public Sub(String client, String path) {
+            this.client = client;
+            this.path = path;
+        }
+
+        public static Sub parse(ZMsg msg) {
+            String cmd = msg.popString();
+            assert "SUB".equals(cmd);
+            return new Sub(msg.popString(), msg.popString());
+        }
+
+        public void send(ZMQ.Socket socket) {
+            toMsg().send(socket, true);
+        }
+
+        private ZMsg toMsg() {
+            ZMsg msg = new ZMsg();
+            msg.add("SUB");
+            msg.add(client);
+            msg.add(path);
+            return msg;
         }
     }
 
