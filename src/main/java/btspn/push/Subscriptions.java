@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.zeromq.*;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 public class Subscriptions implements Runnable {
@@ -42,20 +43,23 @@ public class Subscriptions implements Runnable {
         snapshot.connect(snapshotAddress);
         ZMQ.Socket pipe = ctx.createSocket(ZMQ.PAIR);
         pipe.bind(pipeAddress);
+        AtomicLong lastClientHugz = new AtomicLong(System.currentTimeMillis());
+        AtomicLong lastServerHugz = new AtomicLong(System.currentTimeMillis());
+
 
         ZLoop loop = new ZLoop();
         loop.addPoller(new ZMQ.PollItem(events, ZPoller.IN), (loop1, item, arg) -> {
             if (item.isReadable()) {
                 ZMsg msg = ZMsg.recvMsg(item.getSocket());
+                lastServerHugz.set(System.currentTimeMillis());
                 if (msg.size() == 1) {
                     String cmd = msg.peekFirst().toString();
 
                     if ("RESET".equals(cmd)) {
                         subscriptions = subscriptionsFactory.get();
                         pathSubscriptions.clear();
-                        msg.send(pipe, true);
+                        sendToPipe(pipe, msg, lastClientHugz);
                     } else if ("HUGZ".equals(cmd)) {
-
                     } else {
                         LOG.warn("Invalid msg {}", msg);
                         msg.destroy();
@@ -69,7 +73,7 @@ public class Subscriptions implements Runnable {
                         String publishStr = StringUtils.join(publish, "|");
 
                         msg.push(publishStr);
-                        msg.send(pipe, true);
+                        sendToPipe(pipe, msg, lastClientHugz);
                     } else {
                         msg.destroy();
                     }
@@ -83,7 +87,7 @@ public class Subscriptions implements Runnable {
                 msg.unwrap();
                 if (msg.size() == 5) {
                     // KVSYNCT
-                    msg.send(pipe, true);
+                    sendToPipe(pipe, msg, lastClientHugz);
                 } else {
                     LOG.warn("Invalid msg {}", msg);
                     msg.destroy();
@@ -95,7 +99,9 @@ public class Subscriptions implements Runnable {
             if (item.isReadable()) {
                 ZMsg msg = ZMsg.recvMsg(item.getSocket());
                 String cmd = msg.peekFirst().toString();
+                LOG.trace("PIPE: {}", msg);
                 if ("RESET".equals(cmd)) {
+                    LOG.info("Reseting connections");
                     subscriptions = subscriptionsFactory.get();
                     pathSubscriptions.clear();
                 } else if ("SUB".equals(cmd)) {
@@ -134,12 +140,25 @@ public class Subscriptions implements Runnable {
             }
             return 0;
         }, null);
+        loop.addTimer(50, 0, (loop1, item, arg) -> {
+            if (System.currentTimeMillis() - lastClientHugz.get() > 200) {
+                ZMsg msg = new ZMsg();
+                msg.add("HUGZ");
+                sendToPipe(pipe, msg, lastClientHugz);
+            }
+            return 0;
+        }, null);
         loop.start();
         loop.destroy();
 
         events.close();
         snapshot.close();
         ctx.close();
+    }
+
+    private static void sendToPipe(ZMQ.Socket pipe, ZMsg msg, AtomicLong lastHugz) {
+        msg.send(pipe, true);
+        lastHugz.set(System.currentTimeMillis());
     }
 
     public static Set<String> find(ConcurrentRadixTree<Set<String>> subscriptions, String path) {
@@ -176,6 +195,10 @@ public class Subscriptions implements Runnable {
     }
 
     public static void main(String[] args) {
+        new Subscriptions("tcp://127.0.0.1:5001", "tcp://127.0.0.1:5002", "tcp://127.0.0.1:5004", () -> new ConcurrentRadixTree<Set<String>>(new DefaultCharSequenceNodeFactory())).run();
+    }
+
+    public static void main1(String[] args) {
         Thread t = new Thread(new Subscriptions("tcp://127.0.0.1:5001", "tcp://127.0.0.1:5002", "tcp://127.0.0.1:5004", () -> new ConcurrentRadixTree<Set<String>>(new DefaultCharSequenceNodeFactory())));
         t.setDaemon(false);
         t.start();

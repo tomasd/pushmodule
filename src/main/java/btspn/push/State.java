@@ -13,6 +13,7 @@ import org.zeromq.*;
 import zmq.Msg;
 
 import java.nio.channels.SelectableChannel;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class State implements Runnable {
@@ -28,9 +29,13 @@ public class State implements Runnable {
         this.update = update;
         this.state = state;
     }
-
-
     public static void main(String[] args) throws InterruptedException {
+        ConcurrentRadixTree<Pair<Long, String>> state = new ConcurrentRadixTree<>(new DefaultCharSequenceNodeFactory());
+        new State("tcp://127.0.0.1:5001", "tcp://127.0.0.1:5002", "tcp://127.0.0.1:5003", state).run();
+
+    }
+
+    public static void main1(String[] args) throws InterruptedException {
         ZContext ctx = new ZContext();
 
         ConcurrentRadixTree<Pair<Long, String>> state = new ConcurrentRadixTree<>(new DefaultCharSequenceNodeFactory());
@@ -86,7 +91,7 @@ public class State implements Runnable {
 
         ZLoop loop = new ZLoop();
 
-        AtomicReference<Long> lastHugz = new AtomicReference<>(System.currentTimeMillis());
+        AtomicLong lastHugz = new AtomicLong(System.currentTimeMillis());
         ZMQ.PollItem x = new ZMQ.PollItem(publish, ZPoller.OUT);
         loop.addPoller(x, (loop1, item, arg) -> {
             if (item.isWritable()) {
@@ -104,8 +109,8 @@ public class State implements Runnable {
             }
             return 0;
         }, null);
-        loop.addTimer(2000, 0, (loop1, item, arg) -> {
-            if (System.currentTimeMillis() - lastHugz.get() > 4000) {
+        loop.addTimer(50, 0, (loop1, item, arg) -> {
+            if (System.currentTimeMillis() - lastHugz.get() > 200) {
                 publish.send("HUGZ");
                 lastHugz.set(System.currentTimeMillis());
             }
