@@ -1,6 +1,7 @@
 package btspn.push;
 
 import org.apache.commons.lang3.RandomStringUtils;
+import org.apache.commons.lang3.SystemUtils;
 import org.zeromq.*;
 
 import java.util.Random;
@@ -81,8 +82,9 @@ public class Performance {
         public void run() {
             ZContext ctx = new ZContext();
 
-            ZMQ.Socket update = ctx.createSocket(ZMQ.REQ);
+            ZMQ.Socket update = ctx.createSocket(ZMQ.DEALER);
             update.connect(address);
+            update.setHWM(50000);
 
 
             try {
@@ -93,9 +95,10 @@ public class Performance {
             }
             int i = 0;
             Random random = new Random();
+            long start = System.currentTimeMillis();
             while (true) {
                 new Messages.KvSync("/overview/" + random.nextInt(1000), i++, "", RandomStringUtils.random(10)).send(update);
-                update.recvStr();
+//                update.recvStr();
                 counter.incrementAndGet();
                 if (sleep > 0) {
                     try {
@@ -105,6 +108,9 @@ public class Performance {
                     }
                 }
                 if (false) {
+                    break;
+                }
+                if (System.currentTimeMillis() - start > 10000) {
                     break;
                 }
             }

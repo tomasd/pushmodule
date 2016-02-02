@@ -21,11 +21,16 @@ public class Messages {
         }
 
         public void send(ZMQ.Socket socket) {
+            ZMsg msg = toMsg();
+            msg.send(socket, true);
+        }
+
+        public ZMsg toMsg() {
             ZMsg msg = new ZMsg();
             msg.add("ICANHAZ?");
             msg.add(client);
             msg.add(path);
-            msg.send(socket, true);
+            return msg;
         }
     }
 
@@ -46,6 +51,9 @@ public class Messages {
             this.value = value;
         }
 
+        public boolean isKthxbai() {
+            return "KTHXBAI".equals(key);
+        }
         public static KvSyncT KTHXBAI(String client, String path) {
             return new KvSyncT(client, "KTHXBAI", 0, "", path);
         }

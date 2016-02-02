@@ -4,17 +4,13 @@ import com.googlecode.concurrenttrees.common.KeyValuePair;
 import com.googlecode.concurrenttrees.radix.ConcurrentRadixTree;
 import com.googlecode.concurrenttrees.radix.RadixTree;
 import com.googlecode.concurrenttrees.radix.node.concrete.DefaultCharSequenceNodeFactory;
-import org.apache.commons.lang3.SystemUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.zeromq.*;
-import zmq.Msg;
 
-import java.nio.channels.SelectableChannel;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class State implements Runnable {
     private final static Logger LOG = LoggerFactory.getLogger(State.class);
@@ -86,8 +82,9 @@ public class State implements Runnable {
         ZMQ.Socket snapshot = ctx.createSocket(ZMQ.ROUTER);
         snapshot.bind(this.snapshot);
 
-        ZMQ.Socket update = ctx.createSocket(ZMQ.REP);
+        ZMQ.Socket update = ctx.createSocket(ZMQ.ROUTER);
         update.bind(this.update);
+        update.setRcvHWM(50000);
 
         ZLoop loop = new ZLoop();
 
@@ -102,10 +99,15 @@ public class State implements Runnable {
         }, null);
         loop.addPoller(new ZMQ.PollItem(update, ZPoller.IN), (loop1, item, arg) -> {
             if (item.isReadable()) {
-                if (handlePut(update, publish, state)) {
+                ZMsg msg = ZMsg.recvMsg(update);
+                ZFrame identity = msg.unwrap();
+                if (handlePut(publish, state, msg)) {
                     lastHugz.set(System.currentTimeMillis());
                 }
-                update.send("ACK");
+                ZMsg ack = new ZMsg();
+                ack.add("ACK");
+                ack.wrap(identity);
+                ack.send(update, true);
             }
             return 0;
         }, null);
@@ -153,8 +155,7 @@ public class State implements Runnable {
         ctx.close();
     }
 
-    private static boolean handlePut(ZMQ.Socket socket, ZMQ.Socket publish, RadixTree<Pair<Long, String>> state) {
-        ZMsg kvsync = ZMsg.recvMsg(socket);
+    private static boolean handlePut(ZMQ.Socket publish, RadixTree<Pair<Long, String>> state, ZMsg kvsync) {
         if (kvsync.size() == 4) {
             LOG.trace("KVSYNC {}", kvsync);
             Messages.KvSync kvSync = Messages.KvSync.parse(kvsync);
